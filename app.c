@@ -6,8 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <math.h>
-#include <time.h>
-// #include <sys/time.h> ???
+#include <time.h> // #include <sys/time.h>
 #if defined(_POSIX_MEMLOCK)
    #include <sys/mman.h>
 #else
@@ -22,6 +21,8 @@
 #define MATRICE_SIZE 512 // Options: 512 1024 2048 4096 8192
 #define THREADS_PAIRS 0 // Options: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
 int array_selsort[ARRAY_SIZE];
 int array_quicksort[ARRAY_SIZE];
 int array_matrixadd[MATRICE_SIZE];
@@ -34,6 +35,8 @@ void *thread_selsort_function(void *);
 void *thread_quicksort_function(void *);
 void *thread_matrixadd_function(void *);
 void *thread_matrixmul_function(void *);
+
+double selsort_thread_waitingtime=0;
 
 // Setting process scheduling algorithm to RR with priority 1
 set_process_scheduler()
@@ -132,6 +135,13 @@ int i ;
 int j ;
 int index_min ;
 int min ;
+struct timeval tv;
+struct timespec tms, ts_diff, ts_begin, ts_end;
+int lock=0;
+
+pthread_mutex_init(&mutex,NULL);
+
+clock_gettime(CLOCK_MONOTONIC, &tms); ts_begin=tms;
 for (i = 0; i < size; i++){
 	min = array[i];
 	index_min = i ;
@@ -142,9 +152,30 @@ for (i = 0; i < size; i++){
 		}
 	}
 	temp = array[i];
+	while (pthread_mutex_trylock(&mutex) !=0){ // lock is not acquired - thread is waiting - treated as spin lock
+		clock_gettime(CLOCK_MONOTONIC, &tms); ts_begin=tms;
+		if (errno== EBUSY) lock=1;//puts("Thread was denied access to the mutex");
+		//else perror("pthread_mutex_trylock() error");
+		//else puts("Thread was granted the mutex");
+		}
+	pthread_mutex_lock(&mutex);
+	if (lock==1) {
+		clock_gettime(CLOCK_MONOTONIC, &tms); ts_begin=tms;
+		ts_diff.tv_nsec=ts_end.tv_nsec -ts_begin.tv_nsec; 
+		selsort_thread_waitingtime = ts_diff.tv_nsec/1000000.0; //in ms
+		lock=0;
+	}
 	array[i] = array[index_min];
 	array[index_min] = temp;
+	pthread_mutex_unlock(&mutex);
+
+	if (i==0){
+	clock_gettime(CLOCK_MONOTONIC, &tms); ts_end=tms;
+	ts_diff.tv_nsec=ts_end.tv_nsec -ts_begin.tv_nsec; 
+    printf("\n Selection Sort: First response time in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
+	}
 }
+printf("\n Selection sort: Total thread waiting time = %lf\n", selsort_thread_waitingtime);
 return;
 }
 
@@ -152,6 +183,11 @@ return;
 void quicksort(int array[], int first, int last){
 int hub,left,right;
 int temp;
+int i=0;
+struct timeval tv;
+struct timespec tms, ts_diff, ts_begin, ts_end;
+
+clock_gettime(CLOCK_MONOTONIC, &tms); ts_begin=tms;
 if (last > first){
 	hub = array[first];
 	left = first + 1;
@@ -171,24 +207,53 @@ if (last > first){
 	array[left] = temp;
 	quicksort(array, first , left);
 	quicksort(array, right , last);
+	
+	if (i==0){
+	clock_gettime(CLOCK_MONOTONIC, &tms); ts_end=tms;
+	ts_diff.tv_nsec=ts_end.tv_nsec -ts_begin.tv_nsec; 
+	i++;
+    printf("\n Quick sort Sort: First response time in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
 	}
+}
 return;
 }
 
 //Matrix addition
 void matrixadd(int array[], int dim){
-	int i;
-	sum=0;
+int i;
+sum=0;
+struct timeval tv;
+struct timespec tms, ts_diff, ts_begin, ts_end;
+
+clock_gettime(CLOCK_MONOTONIC, &tms); ts_begin=tms;
 	for (i = 0; i < dim; i++)
-		sum=sum+array[i];		
+	{
+		sum=sum+array[i];	
+		if (i==0){
+		clock_gettime(CLOCK_MONOTONIC, &tms); ts_end=tms;
+		ts_diff.tv_nsec=ts_end.tv_nsec -ts_begin.tv_nsec; 	
+		printf("\n Matrix addition: First response time in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
+		}	
+	}
 }
 
 //Matrix multiplication
 void matrixmul(int array[], int dim){
-	int i;
-	mul=1;
+int i;
+mul=1;
+struct timeval tv;
+struct timespec tms, ts_diff, ts_begin, ts_end;
+
+clock_gettime(CLOCK_MONOTONIC, &tms); ts_begin=tms;
 	for (i = 0; i < dim; i++)
-		mul=mul*array[i];		
+	{
+		mul=mul*array[i];	
+		if (i==0){
+		clock_gettime(CLOCK_MONOTONIC, &tms); ts_end=tms;
+		ts_diff.tv_nsec=ts_end.tv_nsec -ts_begin.tv_nsec; 	
+		printf("\n Matrix multiplication: First response time in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
+		}	
+	}	
 }
 
 
@@ -276,7 +341,7 @@ selectionsort(array_selsort, ARRAY_SIZE);
 clock_gettime(CLOCK_MONOTONIC, &tms); ts_end=tms;
 
 ts_diff.tv_nsec=ts_end.tv_nsec -ts_begin.tv_nsec; 
-printf("\n Selection Sort: Time elapsed in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
+printf("\n Selection Sort: Execution Time elapsed in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
 
 printf("\nSelection sort Sorted:\n"); for (i = 0; i < ARRAY_SIZE; i++) printf("%d ",array_selsort[i]); printf("\n");
 
@@ -310,7 +375,7 @@ selectionsort(array_quicksort, ARRAY_SIZE);
 clock_gettime(CLOCK_MONOTONIC, &tms); ts_end=tms;
 
 ts_diff.tv_nsec=ts_end.tv_nsec -ts_begin.tv_nsec; 
-printf("\n Quicksort: Time elapsed in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
+printf("\n Quicksort: Execution Time elapsed in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
 
 printf("\nQuick sort Sorted:\n"); for (i = 0; i < ARRAY_SIZE; i++) printf("%d ",array_quicksort[i]); printf("\n");
 
@@ -344,7 +409,7 @@ matrixadd(array_matrixadd, MATRICE_SIZE);
 clock_gettime(CLOCK_MONOTONIC, &tms); ts_end=tms;
 
 ts_diff.tv_nsec=ts_end.tv_nsec -ts_begin.tv_nsec; 
-printf("\n Matrix add: Time elapsed in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
+printf("\n Matrix add: Execution Time elapsed in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
 
 printf("\n Matrix addition result is %llu\n", sum);
 
@@ -373,12 +438,12 @@ pthread_setschedparam(pthread_self(), SCHED_RR, &the_priority);
 set_thread_affinity(0);
 get_thread_affinity();
 
-clock_gettime(CLOCK_MONOTONIC, &tms); ts_begin=tms; //CLOCK_REALTIME
+clock_gettime(CLOCK_MONOTONIC, &tms); ts_begin=tms;
 matrixmul(array_matrixmul, MATRICE_SIZE);
 clock_gettime(CLOCK_MONOTONIC, &tms); ts_end=tms;
 
 ts_diff.tv_nsec=ts_end.tv_nsec -ts_begin.tv_nsec; 
-printf("\n Matrix multiplication: Time elapsed in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
+printf("\n Matrix multiplication: Execution Time elapsed in secs = %.06f in msecs = %.06f and in usecs = %.03f", ts_diff.tv_nsec/1000000000.0, ts_diff.tv_nsec/1000000.0, ts_diff.tv_nsec/1000.0);
 
 printf("\n Matrix multiplication result is %llu\n", mul);
 }
